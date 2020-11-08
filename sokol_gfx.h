@@ -1622,6 +1622,7 @@ typedef struct sg_image_desc {
         int depth;
         int layers;
     };
+    bool generateMipmaps;
     int num_mipmaps;
     sg_usage usage;
     sg_pixel_format pixel_format;
@@ -2541,7 +2542,7 @@ inline void sg_init_pass(sg_pass pass_id, const sg_pass_desc& desc) { return sg_
     #else
     #   define SOKOL_INSTANCING_ENABLED
     #endif
-    #define _SG_GL_CHECK_ERROR() { SOKOL_ASSERT(glGetError() == GL_NO_ERROR); }
+    #define _SG_GL_CHECK_ERROR() { int glError = glGetError(); SOKOL_ASSERT(glError == GL_NO_ERROR); }
 
 #elif defined(SOKOL_D3D11)
     #ifndef D3D11_NO_HELPERS
@@ -5832,6 +5833,10 @@ _SOKOL_PRIVATE sg_resource_state _sg_gl_create_image(_sg_image_t* img, const sg_
                                 const GLenum gl_type = _sg_gl_teximage_type(img->cmn.pixel_format);
                                 glTexImage2D(gl_img_target, mip_index, gl_internal_format,
                                     mip_width, mip_height, 0, gl_format, gl_type, data_ptr);
+                                if (desc->generateMipmaps)
+                                {
+                                    glGenerateMipmap(gl_img_target);
+                                }
                             }
                         }
                         #if !defined(SOKOL_GLES2)
@@ -7757,6 +7762,7 @@ _SOKOL_PRIVATE sg_resource_state _sg_d3d11_create_image(_sg_image_t* img, const 
     else {
         /* create (or inject) color texture and shader-resource-view */
 
+        bool const genMips = desc->generateMipmaps;
         /* prepare initial content pointers */
         D3D11_SUBRESOURCE_DATA* init_data = 0;
         if (!injected && (img->cmn.usage == SG_USAGE_IMMUTABLE) && !img->cmn.render_target) {
@@ -7793,13 +7799,13 @@ _SOKOL_PRIVATE sg_resource_state _sg_d3d11_create_image(_sg_image_t* img, const 
                 memset(&d3d11_tex_desc, 0, sizeof(d3d11_tex_desc));
                 d3d11_tex_desc.Width = img->cmn.width;
                 d3d11_tex_desc.Height = img->cmn.height;
-                d3d11_tex_desc.MipLevels = img->cmn.num_mipmaps;
+                d3d11_tex_desc.MipLevels = genMips ? 0 : img->cmn.num_mipmaps;
                 switch (img->cmn.type) {
                     case SG_IMAGETYPE_ARRAY:    d3d11_tex_desc.ArraySize = img->cmn.depth; break;
                     case SG_IMAGETYPE_CUBE:     d3d11_tex_desc.ArraySize = 6; break;
                     default:                    d3d11_tex_desc.ArraySize = 1; break;
                 }
-                d3d11_tex_desc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+                d3d11_tex_desc.BindFlags = D3D11_BIND_SHADER_RESOURCE | (genMips ? D3D11_BIND_RENDER_TARGET : 0);
                 d3d11_tex_desc.Format = img->d3d11.format;
                 if (img->cmn.render_target) {
                     d3d11_tex_desc.Usage = D3D11_USAGE_DEFAULT;
@@ -7809,7 +7815,7 @@ _SOKOL_PRIVATE sg_resource_state _sg_d3d11_create_image(_sg_image_t* img, const 
                     d3d11_tex_desc.CPUAccessFlags = 0;
                 }
                 else {
-                    d3d11_tex_desc.Usage = _sg_d3d11_usage(img->cmn.usage);
+                    d3d11_tex_desc.Usage = genMips ? D3D11_USAGE_DEFAULT : _sg_d3d11_usage(img->cmn.usage);
                     d3d11_tex_desc.CPUAccessFlags = _sg_d3d11_cpu_access_flags(img->cmn.usage);
                 }
                 if (img->d3d11.format == DXGI_FORMAT_UNKNOWN) {
@@ -7820,9 +7826,18 @@ _SOKOL_PRIVATE sg_resource_state _sg_d3d11_create_image(_sg_image_t* img, const 
                 d3d11_tex_desc.SampleDesc.Count = 1;
                 d3d11_tex_desc.SampleDesc.Quality = 0;
                 d3d11_tex_desc.MiscFlags = (img->cmn.type == SG_IMAGETYPE_CUBE) ? D3D11_RESOURCE_MISC_TEXTURECUBE : 0;
+                if (genMips) {
+                    d3d11_tex_desc.MiscFlags |= D3D11_RESOURCE_MISC_GENERATE_MIPS;
+                }
 
-                hr = _sg_d3d11_CreateTexture2D(_sg.d3d11.dev, &d3d11_tex_desc, init_data, &img->d3d11.tex2d);
+                hr = _sg_d3d11_CreateTexture2D(_sg.d3d11.dev, &d3d11_tex_desc, genMips ? NULL : init_data, &img->d3d11.tex2d);
                 SOKOL_ASSERT(SUCCEEDED(hr) && img->d3d11.tex2d);
+            }
+
+            // if generating mipmaps, fill data now
+            if (genMips)
+            {
+                _sg.d3d11.ctx->UpdateSubresource(img->d3d11.tex2d, 0, NULL, init_data->pSysMem, init_data->SysMemPitch, init_data->SysMemSlicePitch);
             }
 
             /* ...and similar, if not injected, create shader-resource-view */
@@ -7833,15 +7848,15 @@ _SOKOL_PRIVATE sg_resource_state _sg_d3d11_create_image(_sg_image_t* img, const 
                 switch (img->cmn.type) {
                     case SG_IMAGETYPE_2D:
                         d3d11_srv_desc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
-                        d3d11_srv_desc.Texture2D.MipLevels = img->cmn.num_mipmaps;
+                        d3d11_srv_desc.Texture2D.MipLevels = genMips ? -1 : img->cmn.num_mipmaps;
                         break;
                     case SG_IMAGETYPE_CUBE:
                         d3d11_srv_desc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURECUBE;
-                        d3d11_srv_desc.TextureCube.MipLevels = img->cmn.num_mipmaps;
+                        d3d11_srv_desc.TextureCube.MipLevels = genMips ? -1 : img->cmn.num_mipmaps;
                         break;
                     case SG_IMAGETYPE_ARRAY:
                         d3d11_srv_desc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2DARRAY;
-                        d3d11_srv_desc.Texture2DArray.MipLevels = img->cmn.num_mipmaps;
+                        d3d11_srv_desc.Texture2DArray.MipLevels = genMips ? -1 : img->cmn.num_mipmaps;
                         d3d11_srv_desc.Texture2DArray.ArraySize = img->cmn.depth;
                         break;
                     default:
@@ -7849,6 +7864,12 @@ _SOKOL_PRIVATE sg_resource_state _sg_d3d11_create_image(_sg_image_t* img, const 
                 }
                 hr = _sg_d3d11_CreateShaderResourceView(_sg.d3d11.dev, (ID3D11Resource*)img->d3d11.tex2d, &d3d11_srv_desc, &img->d3d11.srv);
                 SOKOL_ASSERT(SUCCEEDED(hr) && img->d3d11.srv);
+
+                // finally generate mipmaps
+                if(genMips)
+                {
+                    _sg.d3d11.ctx->GenerateMips(img->d3d11.srv);
+                }
             }
         }
         else {

@@ -2381,7 +2381,8 @@ typedef int  GLint;
     _SAPP_XMACRO(glTexImage2D,                      void, (GLenum target, GLint level, GLint internalformat, GLsizei width, GLsizei height, GLint border, GLenum format, GLenum type, const void * pixels)) \
     _SAPP_XMACRO(glGenVertexArrays,                 void, (GLsizei n, GLuint * arrays)) \
     _SAPP_XMACRO(glFrontFace,                       void, (GLenum mode)) \
-    _SAPP_XMACRO(glCullFace,                        void, (GLenum mode))
+    _SAPP_XMACRO(glCullFace,                        void, (GLenum mode)) \
+    _SAPP_XMACRO(glGenerateMipmap,                  void, (GLenum target))
 
 // generate GL function pointer typedefs
 #define _SAPP_XMACRO(name, ret, args) typedef ret (GL_APIENTRY* PFN_ ## name) args;
