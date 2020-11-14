@@ -699,7 +699,7 @@ _SOKOL_PRIVATE void igSetTooltip(const char* fmt,...) {
     va_end(args);
 }
 _SOKOL_PRIVATE bool igSliderFloat(const char* label,float* v,float v_min,float v_max,const char* format,float power) {
-    return ImGui::SliderFloat(label,v,v_min,v_max,format,power);
+    return ImGui::SliderFloat(label,v,v_min,v_max,format, ImGuiSliderFlags_Logarithmic);
 }
 _SOKOL_PRIVATE void igImage(ImTextureID user_texture_id,const ImVec2 size,const ImVec2 uv0,const ImVec2 uv1,const ImVec4 tint_col,const ImVec4 border_col) {
     return ImGui::Image(user_texture_id,size,uv0,uv1,tint_col,border_col);
