@@ -2377,6 +2377,7 @@ typedef int  GLint;
     _SAPP_XMACRO(glBlendFunc,                       void, (GLenum sfactor, GLenum dfactor)) \
     _SAPP_XMACRO(glUniform1fv,                      void, (GLint location, GLsizei count, const GLfloat * value)) \
     _SAPP_XMACRO(glReadBuffer,                      void, (GLenum src)) \
+    _SAPP_XMACRO(glDrawBuffer,                      void, (GLenum src)) \
     _SAPP_XMACRO(glClear,                           void, (GLbitfield mask)) \
     _SAPP_XMACRO(glTexImage2D,                      void, (GLenum target, GLint level, GLint internalformat, GLsizei width, GLsizei height, GLint border, GLenum format, GLenum type, const void * pixels)) \
     _SAPP_XMACRO(glGenVertexArrays,                 void, (GLsizei n, GLuint * arrays)) \

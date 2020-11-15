@@ -6101,7 +6101,7 @@ _SOKOL_PRIVATE void _sg_gl_destroy_pipeline(_sg_pipeline_t* pip) {
 */
 _SOKOL_PRIVATE sg_resource_state _sg_gl_create_pass(_sg_pass_t* pass, _sg_image_t** att_images, const sg_pass_desc* desc) {
     SOKOL_ASSERT(pass && att_images && desc);
-    SOKOL_ASSERT(att_images && att_images[0]);
+    //SOKOL_ASSERT(att_images && att_images[0]);
     _SG_GL_CHECK_ERROR();
 
     _sg_pass_common_init(&pass->cmn, desc);
@@ -6134,7 +6134,7 @@ _SOKOL_PRIVATE sg_resource_state _sg_gl_create_pass(_sg_pass_t* pass, _sg_image_
     glBindFramebuffer(GL_FRAMEBUFFER, pass->gl.fb);
 
     /* attach msaa render buffer or textures */
-    const bool is_msaa = (0 != att_images[0]->gl.msaa_render_buffer);
+    const bool is_msaa = (att_images[0]) && (0 != att_images[0]->gl.msaa_render_buffer);
     if (is_msaa) {
         for (int i = 0; i < SG_MAX_COLOR_ATTACHMENTS; i++) {
             const _sg_image_t* att_img = pass->gl.color_atts[i].image;
@@ -6193,13 +6193,21 @@ _SOKOL_PRIVATE sg_resource_state _sg_gl_create_pass(_sg_pass_t* pass, _sg_image_
     /* setup color attachments for the framebuffer */
     #if !defined(SOKOL_GLES2)
     if (!_sg.gl.gles2) {
-        GLenum att[SG_MAX_COLOR_ATTACHMENTS] = {
-            GL_COLOR_ATTACHMENT0,
-            GL_COLOR_ATTACHMENT1,
-            GL_COLOR_ATTACHMENT2,
-            GL_COLOR_ATTACHMENT3
-        };
-        glDrawBuffers(pass->cmn.num_color_atts, att);
+        if (pass->cmn.num_color_atts > 0)
+        {
+            GLenum att[SG_MAX_COLOR_ATTACHMENTS] = {
+                GL_COLOR_ATTACHMENT0,
+                GL_COLOR_ATTACHMENT1,
+                GL_COLOR_ATTACHMENT2,
+                GL_COLOR_ATTACHMENT3
+            };
+            glDrawBuffers(pass->cmn.num_color_atts, att);
+        }
+        else
+        {
+            glDrawBuffer(GL_NONE);
+            glReadBuffer(GL_NONE);
+        }
     }
     #endif
 
@@ -13370,10 +13378,15 @@ _SOKOL_PRIVATE bool _sg_validate_pass_desc(const sg_pass_desc* desc) {
         bool atts_cont = true;
         sg_pixel_format color_fmt = SG_PIXELFORMAT_NONE;
         int width = -1, height = -1, sample_count = -1;
+        bool needDepth = false;
         for (int att_index = 0; att_index < SG_MAX_COLOR_ATTACHMENTS; att_index++) {
             const sg_attachment_desc* att = &desc->color_attachments[att_index];
             if (att->image.id == SG_INVALID_ID) {
-                SOKOL_VALIDATE(att_index > 0, _SG_VALIDATE_PASSDESC_NO_COLOR_ATTS);
+                //SOKOL_VALIDATE(att_index > 0, _SG_VALIDATE_PASSDESC_NO_COLOR_ATTS);
+                if (att_index == 0)
+                {
+                    needDepth = true;
+                }
                 atts_cont = false;
                 continue;
             }
@@ -13419,11 +13432,21 @@ _SOKOL_PRIVATE bool _sg_validate_pass_desc(const sg_pass_desc* desc) {
             else if (img->cmn.type == SG_IMAGETYPE_3D) {
                 SOKOL_VALIDATE(att->slice < img->cmn.depth, _SG_VALIDATE_PASSDESC_SLICE);
             }
+            if (needDepth)
+            {
+                width = img->cmn.width >> att->mip_level;
+                height = img->cmn.height >> att->mip_level;
+                sample_count = img->cmn.sample_count;
+            }
             SOKOL_VALIDATE(img->cmn.render_target, _SG_VALIDATE_PASSDESC_IMAGE_NO_RT);
             SOKOL_VALIDATE(width == img->cmn.width >> att->mip_level, _SG_VALIDATE_PASSDESC_IMAGE_SIZES);
             SOKOL_VALIDATE(height == img->cmn.height >> att->mip_level, _SG_VALIDATE_PASSDESC_IMAGE_SIZES);
             SOKOL_VALIDATE(sample_count == img->cmn.sample_count, _SG_VALIDATE_PASSDESC_IMAGE_SAMPLE_COUNTS);
             SOKOL_VALIDATE(_sg_is_valid_rendertarget_depth_format(img->cmn.pixel_format), _SG_VALIDATE_PASSDESC_DEPTH_INV_PIXELFORMAT);
+        }
+        else
+        {
+            SOKOL_VALIDATE(!needDepth, _SG_VALIDATE_PASSDESC_NO_COLOR_ATTS);
         }
         return SOKOL_VALIDATE_END();
     #endif
@@ -13478,9 +13501,12 @@ _SOKOL_PRIVATE bool _sg_validate_apply_pipeline(sg_pipeline pip_id) {
         if (pass) {
             /* an offscreen pass */
             const _sg_image_t* att_img = _sg_pass_color_image(pass, 0);
-            SOKOL_VALIDATE(pip->cmn.color_attachment_count == pass->cmn.num_color_atts, _SG_VALIDATE_APIP_ATT_COUNT);
-            SOKOL_VALIDATE(pip->cmn.color_format == att_img->cmn.pixel_format, _SG_VALIDATE_APIP_COLOR_FORMAT);
-            SOKOL_VALIDATE(pip->cmn.sample_count == att_img->cmn.sample_count, _SG_VALIDATE_APIP_SAMPLE_COUNT);
+            if (att_img)
+            {
+                SOKOL_VALIDATE(pip->cmn.color_attachment_count == pass->cmn.num_color_atts, _SG_VALIDATE_APIP_ATT_COUNT);
+                SOKOL_VALIDATE(pip->cmn.color_format == att_img->cmn.pixel_format, _SG_VALIDATE_APIP_COLOR_FORMAT);
+                SOKOL_VALIDATE(pip->cmn.sample_count == att_img->cmn.sample_count, _SG_VALIDATE_APIP_SAMPLE_COUNT);
+            }
             const _sg_image_t* att_dsimg = _sg_pass_ds_image(pass);
             if (att_dsimg) {
                 SOKOL_VALIDATE(pip->cmn.depth_format == att_dsimg->cmn.pixel_format, _SG_VALIDATE_APIP_DEPTH_FORMAT);
@@ -14497,7 +14523,11 @@ SOKOL_API_IMPL void sg_begin_pass(sg_pass pass_id, const sg_pass_action* pass_ac
         _sg.pass_valid = true;
         sg_pass_action pa;
         _sg_resolve_default_pass_action(pass_action, &pa);
-        const _sg_image_t* img = _sg_pass_color_image(pass, 0);
+        _sg_image_t* img = _sg_pass_color_image(pass, 0);
+        if (!img)
+        {
+            img = _sg_pass_ds_image(pass);
+        }
         SOKOL_ASSERT(img);
         const int w = img->cmn.width;
         const int h = img->cmn.height;
