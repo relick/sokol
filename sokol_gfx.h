@@ -8307,7 +8307,7 @@ _SOKOL_PRIVATE void _sg_d3d11_destroy_pipeline(_sg_pipeline_t* pip) {
 
 _SOKOL_PRIVATE sg_resource_state _sg_d3d11_create_pass(_sg_pass_t* pass, _sg_image_t** att_images, const sg_pass_desc* desc) {
     SOKOL_ASSERT(pass && desc);
-    SOKOL_ASSERT(att_images && att_images[0]);
+    //SOKOL_ASSERT(att_images && att_images[0]);
     SOKOL_ASSERT(_sg.d3d11.dev);
 
     _sg_pass_common_init(&pass->cmn, desc);
