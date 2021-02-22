@@ -2615,7 +2615,11 @@ inline int sg_append_buffer(sg_buffer buf_id, const sg_range& data) { return sg_
     #else
     #   define SOKOL_INSTANCING_ENABLED
     #endif
-    #define _SG_GL_CHECK_ERROR() { int glError = glGetError(); SOKOL_ASSERT(glError == GL_NO_ERROR); }
+    #ifndef DISABLE_GL_ERROR
+    #define _SG_GL_CHECK_ERROR() { GLenum glError = glGetError(); const GLubyte* glErrStr = gluErrorString(glError); SOKOL_ASSERT(glError == GL_NO_ERROR); }
+    #else
+    #define _SG_GL_CHECK_ERROR()
+    #endif
 
 #elif defined(SOKOL_D3D11)
     #ifndef D3D11_NO_HELPERS

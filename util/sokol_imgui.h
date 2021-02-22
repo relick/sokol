@@ -239,6 +239,7 @@ typedef struct simgui_desc_t {
 } simgui_desc_t;
 
 SOKOL_IMGUI_API_DECL void simgui_setup(const simgui_desc_t* desc);
+SOKOL_IMGUI_API_DECL void simgui_setfont(sg_image font);
 SOKOL_IMGUI_API_DECL void simgui_new_frame(int width, int height, double delta_time);
 SOKOL_IMGUI_API_DECL void simgui_render(void);
 #if !defined(SOKOL_IMGUI_NO_SOKOL_APP)
@@ -1818,6 +1819,12 @@ SOKOL_API_IMPL void simgui_setup(const simgui_desc_t* desc) {
     _simgui.pip = sg_make_pipeline(&pip_desc);
 
     sg_pop_debug_group();
+}
+
+SOKOL_API_IMPL void simgui_setfont(sg_image font)
+{
+    _simgui.img = font;
+    ImGui::GetIO().Fonts->TexID = (ImTextureID)(uintptr_t)_simgui.img.id;
 }
 
 SOKOL_API_IMPL void simgui_shutdown(void) {

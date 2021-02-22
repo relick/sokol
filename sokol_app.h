@@ -1786,6 +1786,7 @@ typedef BOOL (WINAPI * PFN_wglMakeCurrent)(HDC,HGLRC);
 
 typedef struct {
     HINSTANCE opengl32;
+    HINSTANCE glu32;
     HGLRC gl_ctx;
     PFN_wglCreateContext CreateContext;
     PFN_wglDeleteContext DeleteContext;
@@ -2447,14 +2448,19 @@ typedef int  GLint;
     _SAPP_XMACRO(glCullFace,                        void, (GLenum mode)) \
     _SAPP_XMACRO(glGenerateMipmap,                  void, (GLenum target))
 
+#define _SAPP_GLU_FUNCS \
+    _SAPP_XMACRO(gluErrorString,                    const GLubyte*, (GLenum error))
+
 // generate GL function pointer typedefs
 #define _SAPP_XMACRO(name, ret, args) typedef ret (GL_APIENTRY* PFN_ ## name) args;
 _SAPP_GL_FUNCS
+_SAPP_GLU_FUNCS
 #undef _SAPP_XMACRO
 
 // generate GL function pointers
 #define _SAPP_XMACRO(name, ret, args) static PFN_ ## name name;
 _SAPP_GL_FUNCS
+_SAPP_GLU_FUNCS
 #undef _SAPP_XMACRO
 
 // helper function to lookup GL functions in GL DLL
@@ -2467,12 +2473,25 @@ _SOKOL_PRIVATE void* _sapp_win32_glgetprocaddr(const char* name) {
     return proc_addr;
 }
 
+// helper function to lookup GLU functions in GLU DLL
+_SOKOL_PRIVATE void* _sapp_win32_glugetprocaddr(const char* name)
+{
+    void* proc_addr = (void*)GetProcAddress(_sapp.wgl.glu32, name);
+    SOKOL_ASSERT(proc_addr);
+    return proc_addr;
+}
+
 // populate GL function pointers
 _SOKOL_PRIVATE  void _sapp_win32_gl_loadfuncs(void) {
     SOKOL_ASSERT(_sapp.wgl.GetProcAddress);
     SOKOL_ASSERT(_sapp.wgl.opengl32);
     #define _SAPP_XMACRO(name, ret, args) name = (PFN_ ## name) _sapp_win32_glgetprocaddr(#name);
     _SAPP_GL_FUNCS
+    #undef _SAPP_XMACRO
+
+    SOKOL_ASSERT(_sapp.wgl.glu32);
+    #define _SAPP_XMACRO(name, ret, args) name = (PFN_ ## name) _sapp_win32_glugetprocaddr(#name);
+    _SAPP_GLU_FUNCS
     #undef _SAPP_XMACRO
 }
 
@@ -2586,7 +2605,7 @@ _SOKOL_PRIVATE sapp_desc _sapp_desc_defaults(const sapp_desc* in_desc) {
     desc.width = _sapp_def(desc.width, 640);
     desc.height = _sapp_def(desc.height, 480);
     desc.sample_count = _sapp_def(desc.sample_count, 1);
-    desc.swap_interval = _sapp_def(desc.swap_interval, 1);
+    desc.swap_interval = desc.swap_interval; // _sapp_def(desc.swap_interval, 1);
     desc.html5_canvas_name = _sapp_def(desc.html5_canvas_name, "canvas");
     desc.clipboard_size = _sapp_def(desc.clipboard_size, 8192);
     desc.max_dropped_files = _sapp_def(desc.max_dropped_files, 1);
@@ -5380,6 +5399,11 @@ _SOKOL_PRIVATE void _sapp_wgl_init(void) {
     _sapp.wgl.opengl32 = LoadLibraryA("opengl32.dll");
     if (!_sapp.wgl.opengl32) {
         _sapp_fail("Failed to load opengl32.dll\n");
+    }
+    _sapp.wgl.glu32 = LoadLibraryA("glu32.dll");
+    if (!_sapp.wgl.glu32)
+    {
+        _sapp_fail("Failed to load glu32.dll\n");
     }
     SOKOL_ASSERT(_sapp.wgl.opengl32);
     _sapp.wgl.CreateContext = (PFN_wglCreateContext)(void*) GetProcAddress(_sapp.wgl.opengl32, "wglCreateContext");
