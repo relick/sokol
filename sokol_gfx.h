@@ -1680,6 +1680,7 @@ typedef struct sg_image_desc {
     uint32_t max_anisotropy;
     float min_lod;
     float max_lod;
+    bool will_be_sampled;
     sg_image_data data;
     const char* label;
     /* GL specific */
@@ -1818,6 +1819,7 @@ typedef struct sg_shader_desc {
         .read_mask:         0
         .write_mask:        0
         .ref:               0
+    .no_color               false
     .color_count            1
     .colors[0..color_count]
         .pixel_format       sg_desc.context.color_format
@@ -1909,6 +1911,7 @@ typedef struct sg_pipeline_desc {
     sg_layout_desc layout;
     sg_depth_state depth;
     sg_stencil_state stencil;
+    bool no_color;
     int color_count;
     sg_color_state colors[SG_MAX_COLOR_ATTACHMENTS];
     sg_primitive_type primitive_type;
@@ -5790,7 +5793,7 @@ _SOKOL_PRIVATE sg_resource_state _sg_gl_create_image(_sg_image_t* img, const sg_
     }
     #endif
 
-    if (_sg_is_valid_rendertarget_depth_format(img->cmn.pixel_format)) {
+    if (_sg_is_valid_rendertarget_depth_format(img->cmn.pixel_format) && !desc->will_be_sampled) {
         /* special case depth-stencil-buffer? */
         SOKOL_ASSERT((img->cmn.usage == SG_USAGE_IMMUTABLE) && (img->cmn.num_slots == 1));
         SOKOL_ASSERT(!img->gl.ext_textures);   /* cannot provide external texture for depth images */
@@ -6266,11 +6269,22 @@ _SOKOL_PRIVATE sg_resource_state _sg_gl_create_pass(_sg_pass_t* pass, _sg_image_
 
     /* attach depth-stencil buffer to framebuffer */
     if (pass->gl.ds_att.image) {
+		// if unsampled, render buffer available, otherwise it is sampled and we use texture binding instead.
         const GLuint gl_render_buffer = pass->gl.ds_att.image->gl.depth_render_buffer;
-        SOKOL_ASSERT(gl_render_buffer);
-        glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, gl_render_buffer);
-        if (_sg_is_depth_stencil_format(pass->gl.ds_att.image->cmn.pixel_format)) {
-            glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_STENCIL_ATTACHMENT, GL_RENDERBUFFER, gl_render_buffer);
+        if (gl_render_buffer)
+        {
+            glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, gl_render_buffer);
+            if (_sg_is_depth_stencil_format(pass->gl.ds_att.image->cmn.pixel_format))
+            {
+                glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_STENCIL_ATTACHMENT, GL_RENDERBUFFER, gl_render_buffer);
+            }
+        }
+        else
+        {
+            const GLuint gl_tex = pass->gl.ds_att.image->gl.tex[0];
+            SOKOL_ASSERT(gl_tex);
+            SOKOL_ASSERT(pass->gl.ds_att.image->cmn.type == SG_IMAGETYPE_2D);
+            glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, gl_tex, 0);
         }
     }
 
@@ -6679,6 +6693,7 @@ _SOKOL_PRIVATE void _sg_gl_apply_pipeline(_sg_pipeline_t* pip) {
         /* update blend state
             FIXME: separate blend state per color attachment not support, needs GL4
         */
+        if (pip->cmn.color_attachment_count > 0)
         {
             const sg_blend_state* state_bs = &pip->gl.blend;
             sg_blend_state* cache_bs = &_sg.gl.cache.blend;
@@ -7898,13 +7913,77 @@ _SOKOL_PRIVATE sg_resource_state _sg_d3d11_create_image(_sg_image_t* img, const 
         d3d11_desc.Height = (UINT)img->cmn.height;
         d3d11_desc.MipLevels = 1;
         d3d11_desc.ArraySize = 1;
+        if (desc->will_be_sampled)
+        {
+            img->d3d11.format = DXGI_FORMAT_R24G8_TYPELESS;
+        }
         d3d11_desc.Format = img->d3d11.format;
         d3d11_desc.Usage = D3D11_USAGE_DEFAULT;
-        d3d11_desc.BindFlags = D3D11_BIND_DEPTH_STENCIL;
+        d3d11_desc.BindFlags = D3D11_BIND_DEPTH_STENCIL | (desc->will_be_sampled ? D3D11_BIND_SHADER_RESOURCE : 0);
         d3d11_desc.SampleDesc.Count = (UINT)img->cmn.sample_count;
         d3d11_desc.SampleDesc.Quality = (UINT) (msaa ? D3D11_STANDARD_MULTISAMPLE_PATTERN : 0);
         hr = _sg_d3d11_CreateTexture2D(_sg.d3d11.dev, &d3d11_desc, NULL, &img->d3d11.texds);
         SOKOL_ASSERT(SUCCEEDED(hr) && img->d3d11.texds);
+
+        if (desc->will_be_sampled)
+        {
+            SOKOL_ASSERT(0 == img->d3d11.srv);
+            {
+                D3D11_SHADER_RESOURCE_VIEW_DESC d3d11_srv_desc;
+                memset(&d3d11_srv_desc, 0, sizeof(d3d11_srv_desc));
+                d3d11_srv_desc.Format = DXGI_FORMAT_R24_UNORM_X8_TYPELESS;
+                switch (img->cmn.type)
+                {
+                case SG_IMAGETYPE_2D:
+                    d3d11_srv_desc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
+                    d3d11_srv_desc.Texture2D.MipLevels = 1;
+                    break;
+                case SG_IMAGETYPE_CUBE:
+                    d3d11_srv_desc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURECUBE;
+                    d3d11_srv_desc.TextureCube.MipLevels = 1;
+                    break;
+                case SG_IMAGETYPE_ARRAY:
+                    d3d11_srv_desc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2DARRAY;
+                    d3d11_srv_desc.Texture2DArray.MipLevels = 1;
+                    d3d11_srv_desc.Texture2DArray.ArraySize = (UINT)img->cmn.num_slices;
+                    break;
+                default:
+                    SOKOL_UNREACHABLE; break;
+                }
+                hr = _sg_d3d11_CreateShaderResourceView(_sg.d3d11.dev, (ID3D11Resource*)img->d3d11.texds, &d3d11_srv_desc, &img->d3d11.srv);
+                SOKOL_ASSERT(SUCCEEDED(hr) && img->d3d11.srv);
+            }
+
+            /* sampler state object, note D3D11 implements an internal shared-pool for sampler objects */
+            D3D11_SAMPLER_DESC d3d11_smp_desc;
+            memset(&d3d11_smp_desc, 0, sizeof(d3d11_smp_desc));
+        	d3d11_smp_desc.AddressU = _sg_d3d11_address_mode(img->cmn.wrap_u);
+        	d3d11_smp_desc.AddressV = _sg_d3d11_address_mode(img->cmn.wrap_v);
+        	d3d11_smp_desc.AddressW = _sg_d3d11_address_mode(img->cmn.wrap_w);
+            switch (img->cmn.border_color)
+            {
+            case SG_BORDERCOLOR_TRANSPARENT_BLACK:
+                /* all 0.0f */
+                break;
+            case SG_BORDERCOLOR_OPAQUE_WHITE:
+                for (int i = 0; i < 4; i++)
+                {
+                    d3d11_smp_desc.BorderColor[i] = 1.0f;
+                }
+                break;
+            default:
+                /* opaque black */
+                d3d11_smp_desc.BorderColor[3] = 1.0f;
+                break;
+            }
+        	d3d11_smp_desc.MinLOD = desc->min_lod;
+        	d3d11_smp_desc.MaxLOD = desc->max_lod;
+            d3d11_smp_desc.MaxAnisotropy = 0;
+            d3d11_smp_desc.ComparisonFunc = D3D11_COMPARISON_LESS_EQUAL;
+            d3d11_smp_desc.Filter = D3D11_FILTER_COMPARISON_MIN_MAG_MIP_POINT;
+            hr = _sg_d3d11_CreateSamplerState(_sg.d3d11.dev, &d3d11_smp_desc, &img->d3d11.smp);
+            SOKOL_ASSERT(SUCCEEDED(hr) && img->d3d11.smp);
+        }
     }
     else {
         /* create (or inject) color texture and shader-resource-view */
@@ -8530,7 +8609,15 @@ _SOKOL_PRIVATE sg_resource_state _sg_d3d11_create_pass(_sg_pass_t* pass, _sg_ima
         /* create D3D11 depth-stencil-view */
         D3D11_DEPTH_STENCIL_VIEW_DESC d3d11_dsv_desc;
         memset(&d3d11_dsv_desc, 0, sizeof(d3d11_dsv_desc));
-        d3d11_dsv_desc.Format = att_img->d3d11.format;
+        if (att_img->d3d11.format == DXGI_FORMAT_R24G8_TYPELESS)
+        {
+            d3d11_dsv_desc.Format = DXGI_FORMAT_D24_UNORM_S8_UINT;
+            d3d11_dsv_desc.Texture2D.MipSlice = 0;
+        }
+        else
+        {
+            d3d11_dsv_desc.Format = att_img->d3d11.format;
+        }
         const bool is_msaa = att_img->cmn.sample_count > 1;
         if (is_msaa) {
             d3d11_dsv_desc.ViewDimension = D3D11_DSV_DIMENSION_TEXTURE2DMS;
@@ -13969,7 +14056,7 @@ _SOKOL_PRIVATE sg_pipeline_desc _sg_pipeline_desc_defaults(const sg_pipeline_des
 
     def.depth.compare = _sg_def(def.depth.compare, SG_COMPAREFUNC_ALWAYS);
     def.depth.pixel_format = _sg_def(def.depth.pixel_format, _sg.desc.context.depth_format);
-    def.color_count = _sg_def(def.color_count, 1);
+    def.color_count = def.no_color ? 0 : _sg_def(def.color_count, 1);
     if (def.color_count > SG_MAX_COLOR_ATTACHMENTS) {
         def.color_count = SG_MAX_COLOR_ATTACHMENTS;
     }
