@@ -2619,7 +2619,7 @@ inline int sg_append_buffer(sg_buffer buf_id, const sg_range& data) { return sg_
     #   define SOKOL_INSTANCING_ENABLED
     #endif
     #ifndef DISABLE_GL_ERROR
-    #define _SG_GL_CHECK_ERROR() { GLenum glError = glGetError(); const GLubyte* glErrStr = gluErrorString(glError); SOKOL_ASSERT(glError == GL_NO_ERROR); }
+    #define _SG_GL_CHECK_ERROR() { GLenum glError = glGetError(); /*const GLubyte* glErrStr = gluErrorString(glError);*/ SOKOL_ASSERT(glError == GL_NO_ERROR); }
     #else
     #define _SG_GL_CHECK_ERROR()
     #endif
