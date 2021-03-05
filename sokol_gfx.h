@@ -5847,6 +5847,11 @@ _SOKOL_PRIVATE sg_resource_state _sg_gl_create_image(_sg_image_t* img, const sg_
                 GLenum gl_mag_filter = _sg_gl_filter(img->cmn.mag_filter);
                 glTexParameteri(img->gl.target, GL_TEXTURE_MIN_FILTER, (GLint)gl_min_filter);
                 glTexParameteri(img->gl.target, GL_TEXTURE_MAG_FILTER, (GLint)gl_mag_filter);
+                if (desc->will_be_sampled)
+                {
+                    glTexParameteri(img->gl.target, GL_TEXTURE_COMPARE_MODE, GL_COMPARE_R_TO_TEXTURE);
+                    glTexParameteri(img->gl.target, GL_TEXTURE_COMPARE_FUNC, GL_GREATER);
+                }
                 if (_sg.gl.ext_anisotropic && (img->cmn.max_anisotropy > 1)) {
                     GLint max_aniso = (GLint) img->cmn.max_anisotropy;
                     if (max_aniso > _sg.gl.max_anisotropy) {
@@ -7979,8 +7984,8 @@ _SOKOL_PRIVATE sg_resource_state _sg_d3d11_create_image(_sg_image_t* img, const 
         	d3d11_smp_desc.MinLOD = desc->min_lod;
         	d3d11_smp_desc.MaxLOD = desc->max_lod;
             d3d11_smp_desc.MaxAnisotropy = 0;
-            d3d11_smp_desc.ComparisonFunc = D3D11_COMPARISON_LESS_EQUAL;
-            d3d11_smp_desc.Filter = D3D11_FILTER_COMPARISON_MIN_MAG_MIP_POINT;
+            d3d11_smp_desc.ComparisonFunc = D3D11_COMPARISON_GREATER;
+            d3d11_smp_desc.Filter = D3D11_FILTER_COMPARISON_MIN_MAG_MIP_LINEAR;
             hr = _sg_d3d11_CreateSamplerState(_sg.d3d11.dev, &d3d11_smp_desc, &img->d3d11.smp);
             SOKOL_ASSERT(SUCCEEDED(hr) && img->d3d11.smp);
         }

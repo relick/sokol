@@ -2346,6 +2346,10 @@ typedef int  GLint;
 #define GL_CLAMP_TO_BORDER 0x812D
 #define GL_TEXTURE_BORDER_COLOR 0x1004
 #define GL_CURRENT_PROGRAM 0x8B8D
+#define GL_TEXTURE_COMPARE_MODE 0x884C
+#define GL_COMPARE_R_TO_TEXTURE 0x884E
+#define GL_TEXTURE_COMPARE_FUNC 0x884D
+#define GL_GREATER 0x0204
 
 // X Macro list of GL function names and signatures
 #define _SAPP_GL_FUNCS \
